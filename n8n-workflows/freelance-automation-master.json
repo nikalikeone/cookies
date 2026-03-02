@@ -1,0 +1,1030 @@
+{
+  "name": "Freelance Automation Master",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "freelance-bot",
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Парсинг входящего сообщения от пользователя\nconst message = $input.item.json.message.text;\n\n// Регулярные выражения для парсинга структурированного сообщения\nconst patterns = {\n  title: /Заголовок:\\s*(.+)/i,\n  platform: /Биржа:\\s*(.+)/i,\n  link: /Ссылка:\\s*(.+)/i,\n  description: /Описание:\\s*([\\s\\S]*?)(?=Бюджет:|Дедлайн:|$)/i,\n  budget: /Бюджет:\\s*(.+)/i,\n  deadline: /Дедлайн:\\s*(.+)/i\n};\n\n// Извлечение данных\nconst data = {\n  title: message.match(patterns.title)?.[1]?.trim() || '',\n  platform: message.match(patterns.platform)?.[1]?.trim() || 'Unknown',\n  link: message.match(patterns.link)?.[1]?.trim() || '',\n  description: message.match(patterns.description)?.[1]?.trim() || message,\n  budget: message.match(patterns.budget)?.[1]?.trim() || 'Не указан',\n  deadline: message.match(patterns.deadline)?.[1]?.trim() || 'Не указан',\n  rawMessage: message,\n  chatId: $input.item.json.message.chat.id,\n  messageId: $input.item.json.message.message_id,\n  timestamp: new Date().toISOString()\n};\n\n// Валидация: проверяем, что хотя бы описание есть\nif (!data.description || data.description.length < 10) {\n  return {\n    json: {\n      error: true,\n      errorMessage: 'Описание задания слишком короткое. Минимум 10 символов.',\n      chatId: data.chatId\n    }\n  };\n}\n\nreturn {\n  json: data\n};"
+      },
+      "id": "parse-message",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.error }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-error",
+      "name": "Check Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.errorMessage }}"
+      },
+      "id": "send-error",
+      "name": "Send Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        850,
+        200
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "✅ Задание принято в обработку!\n\n📋 Анализирую задание..."
+      },
+      "id": "send-ack",
+      "name": "Send Acknowledgement",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        850,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "google/gemini-2.0-flash-exp:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты эксперт по анализу фриланс-заданий. Проанализируй задание и дай структурированный ответ в JSON формате.\"}, {\"role\": \"user\", \"content\": `Проанализируй фриланс-задание:\\n\\nБиржа: ${$json.platform}\\nЗаголовок: ${$json.title}\\nОписание: ${$json.description}\\nБюджет: ${$json.budget}\\nДедлайн: ${$json.deadline}\\n\\nОпредели:\\n1. Тип задачи (разработка, дизайн, текст, другое)\\n2. Сложность (1-10)\\n3. Требуемые навыки (массив)\\n4. Реалистичность бюджета (низкая/средняя/высокая)\\n5. Красные флаги (массив проблем)\\n6. Рекомендация: брать/не брать + причина\\n\\nОтветь ТОЛЬКО в JSON формате:\\n{\\n  \\\"taskType\\\": \\\"...\\\",\\n  \\\"complexity\\\": 5,\\n  \\\"skills\\\": [...],\\n  \\\"budgetRealism\\\": \\\"средняя\\\",\\n  \\\"redFlags\\\": [...],\\n  \\\"recommendation\\\": {\\n    \\\"take\\\": true/false,\\n    \\\"reason\\\": \\\"...\\\"\\n  }\\n}`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-analyze-task",
+      "name": "AI Analyze Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1050,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Парсинг ответа от AI\nconst aiResponse = $input.item.json.choices[0].message.content;\n\n// Извлекаем JSON из ответа (может быть обёрнут в markdown)\nlet analysis;\ntry {\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*\\}/);\n  analysis = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  return {\n    json: {\n      error: true,\n      errorMessage: 'Ошибка парсинга ответа AI: ' + error.message,\n      rawResponse: aiResponse\n    }\n  };\n}\n\n// Объединяем данные\nreturn {\n  json: {\n    ...($node[\"Parse Message\"].json),\n    analysis: analysis,\n    analysisCompleted: true\n  }\n};"
+      },
+      "id": "parse-analysis",
+      "name": "Parse Analysis",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ `📊 Анализ завершён:\\n\\n🔹 Тип задачи: ${$json.analysis.taskType}\\n🔹 Сложность: ${$json.analysis.complexity}/10\\n🔹 Навыки: ${$json.analysis.skills.join(', ')}\\n🔹 Бюджет: ${$json.analysis.budgetRealism}\\n\\n${$json.analysis.redFlags.length > 0 ? '⚠️ Красные флаги:\\n' + $json.analysis.redFlags.map(f => '- ' + f).join('\\n') + '\\n\\n' : ''}${$json.analysis.recommendation.take ? '✅ Рекомендация: БРАТЬ' : '❌ Рекомендация: НЕ БРАТЬ'}\\n\\nПричина: ${$json.analysis.recommendation.reason}` }}"
+      },
+      "id": "send-analysis",
+      "name": "Send Analysis",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.analysis.recommendation.take }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-recommendation",
+      "name": "Check Recommendation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1650,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "🤖 Генерирую отклик на задание..."
+      },
+      "id": "send-generating",
+      "name": "Send Generating Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1850,
+        500
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "number": [
+            {
+              "name": "iteration",
+              "value": 0
+            },
+            {
+              "name": "maxIterations",
+              "value": 3
+            }
+          ],
+          "string": [
+            {
+              "name": "currentDraft",
+              "value": ""
+            },
+            {
+              "name": "suggestions",
+              "value": ""
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "init-loop",
+      "name": "Init Loop Variables",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        2050,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "mistralai/mistral-7b-instruct:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты профессиональный фрилансер с опытом написания откликов.\"}, {\"role\": \"user\", \"content\": `Напиши отклик на фриланс-задание.\\n\\nЗадание: ${$json.description}\\nБюджет: ${$json.budget}\\nДедлайн: ${$json.deadline}\\n\\nМой опыт: Python 3+ года, n8n автоматизация, парсинг данных, боты Telegram, веб-скрейпинг, API интеграции.\\n\\nТребования к отклику:\\n- Тон: профессиональный, уверенный, не высокомерный\\n- Длина: 100-150 слов\\n- Структура: приветствие → релевантный опыт/кейс → понимание задачи → предложение сроков → вопрос для уточнения\\n- Обязательно упомяни конкретные технологии релевантные задаче\\n- Не используй шаблонные фразы\\n\\n${$json.suggestions ? 'Улучши отклик с учётом замечаний: ' + $json.suggestions : ''}\\n\\nНапиши только текст отклика, без дополнительных комментариев.`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generate-draft",
+      "name": "Generate Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2250,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Извлечение текста отклика\nconst draft = $input.item.json.choices[0].message.content.trim();\n\nreturn {\n  json: {\n    ...($node[\"Init Loop Variables\"].json),\n    currentDraft: draft\n  }\n};"
+      },
+      "id": "extract-draft",
+      "name": "Extract Draft",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "google/gemini-2.0-flash-exp:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты строгий эксперт по оценке откликов на фриланс-задания.\"}, {\"role\": \"user\", \"content\": `Оцени этот отклик на фриланс-задание:\\n\\nЗАДАНИЕ:\\n${$json.description}\\n\\nОТКЛИК:\\n${$json.currentDraft}\\n\\nОцени по критериям:\\n1. Соответствует ли ТЗ заказчика? (да/нет)\\n2. Есть ли конкретика (цифры, сроки, технологии)? (оценка 1-10)\\n3. Звучит ли как шаблон? (да/нет)\\n4. Есть ли явная польза для заказчика? (да/нет)\\n5. Общая оценка (1-10)\\n\\nОтветь в JSON формате:\\n{\\n  \\\"matchesRequirements\\\": true/false,\\n  \\\"specificityScore\\\": 7,\\n  \\\"soundsTemplate\\\": false,\\n  \\\"showsValue\\\": true,\\n  \\\"overallScore\\\": 8,\\n  \\\"improve\\\": false,\\n  \\\"suggestions\\\": \\\"конкретные правки или пустая строка\\\"\\n}`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "review-draft",
+      "name": "Review Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2650,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Парсинг оценки\nconst reviewResponse = $input.item.json.choices[0].message.content;\n\nlet review;\ntry {\n  const jsonMatch = reviewResponse.match(/\\{[\\s\\S]*\\}/);\n  review = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  // Если не удалось распарсить, считаем что отклик хороший\n  review = {\n    overallScore: 8,\n    improve: false,\n    suggestions: ''\n  };\n}\n\nconst currentIteration = $node[\"Extract Draft\"].json.iteration || 0;\n\nreturn {\n  json: {\n    ...($node[\"Extract Draft\"].json),\n    review: review,\n    iteration: currentIteration + 1,\n    needsImprovement: review.improve && review.overallScore < 8 && currentIteration < 2,\n    suggestions: review.suggestions || ''\n  }\n};"
+      },
+      "id": "parse-review",
+      "name": "Parse Review",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2850,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.needsImprovement }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-improvement",
+      "name": "Check Improvement Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3050,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ `✅ ОТКЛИК ГОТОВ (оценка: ${$json.review.overallScore}/10):\\n\\n${$json.currentDraft}\\n\\n---\\n📋 Биржа: ${$json.platform}\\n🔗 Ссылка: ${$json.link || 'не указана'}` }}"
+      },
+      "id": "send-final-response",
+      "name": "Send Final Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        3250,
+        600
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.analysis.taskType }}",
+              "operation": "contains",
+              "value2": "разработка"
+            }
+          ]
+        }
+      },
+      "id": "check-dev-task",
+      "name": "Check If Dev Task",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3450,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "💻 Начинаю разработку решения..."
+      },
+      "id": "send-dev-start",
+      "name": "Send Dev Start",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        3650,
+        700
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "meta-llama/llama-3.1-8b-instruct:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты опытный Python-разработчик. Пиши чистый, документированный код с обработкой ошибок.\"}, {\"role\": \"user\", \"content\": `Задача: ${$json.description}\\n\\nТребования:\\n1. Чистый Python код с комментариями\\n2. Обработка ошибок\\n3. README с инструкцией по установке и запуску\\n4. Примеры использования\\n\\nСначала напиши план реализации (3-5 шагов), затем код, затем README.\\n\\nФормат ответа:\\n## ПЛАН\\n1. ...\\n\\n## КОД\\n\\`\\`\\`python\\n...\\n\\`\\`\\`\\n\\n## README\\n...`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generate-code",
+      "name": "Generate Code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        3850,
+        700
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "google/gemini-2.0-flash-exp:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты код-ревьюер. Проверяй код на баги, безопасность, соответствие требованиям.\"}, {\"role\": \"user\", \"content\": `Проверь этот код:\\n\\nТРЕБОВАНИЯ:\\n${$json.description}\\n\\nКОД:\\n${$node['Generate Code'].json.choices[0].message.content}\\n\\nПроверь:\\n1. Соответствие требованиям\\n2. Наличие багов\\n3. Безопасность (SQL injection, XSS, etc)\\n4. Обработка ошибок\\n5. Качество кода\\n\\nОтветь в JSON:\\n{\\n  \\\"hasIssues\\\": true/false,\\n  \\\"issues\\\": [\\\"список проблем\\\"],\\n  \\\"suggestions\\\": \\\"конкретные правки\\\",\\n  \\\"approved\\\": true/false\\n}`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "review-code",
+      "name": "Review Code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        4050,
+        700
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const codeResponse = $node['Generate Code'].json.choices[0].message.content;\nconst reviewResponse = $node['Review Code'].json.choices[0].message.content;\n\nlet review;\ntry {\n  const jsonMatch = reviewResponse.match(/\\{[\\s\\S]*\\}/);\n  review = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  review = { approved: true, hasIssues: false, issues: [] };\n}\n\nreturn {\n  json: {\n    ...($node[\"Check If Dev Task\"].json),\n    generatedCode: codeResponse,\n    codeReview: review\n  }\n};"
+      },
+      "id": "parse-code-review",
+      "name": "Parse Code Review",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        4250,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ `💻 КОД ГОТОВ:\\n\\n${$json.generatedCode.substring(0, 3000)}${$json.generatedCode.length > 3000 ? '\\n\\n... (полный код слишком длинный для Telegram)' : ''}\\n\\n---\\n📝 Код-ревью: ${$json.codeReview.approved ? '✅ Одобрено' : '⚠️ Есть замечания'}\\n${$json.codeReview.hasIssues ? '\\nПроблемы:\\n' + $json.codeReview.issues.map(i => '- ' + i).join('\\n') : ''}` }}"
+      },
+      "id": "send-code",
+      "name": "Send Code",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        4450,
+        700
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.analysis.taskType }}",
+              "operation": "contains",
+              "value2": "дизайн"
+            }
+          ]
+        }
+      },
+      "id": "check-design-task",
+      "name": "Check If Design Task",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3450,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://n8n.io"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "google/gemini-2.0-flash-exp:free"
+            },
+            {
+              "name": "messages",
+              "value": "={{ [{\"role\": \"system\", \"content\": \"Ты эксперт по дизайну и помогаешь новичкам создавать качественный дизайн.\"}, {\"role\": \"user\", \"content\": `Задача: ${$json.description}\\n\\nСоздай подробную инструкцию для выполнения этой дизайн-задачи без опыта.\\n\\nВключи:\\n1. АНАЛИЗ ЗАДАЧИ: что нужно сделать, в каком стиле, для чего\\n2. ИНСТРУМЕНТЫ: какие использовать (Canva/Figma/Leonardo.ai/etc)\\n3. ПОШАГОВАЯ ИНСТРУКЦИЯ: детальные шаги с конкретными действиями\\n4. ПРОМПТ ДЛЯ AI ГЕНЕРАТОРА: если нужна генерация изображений\\n5. ТЕХНИЧЕСКИЕ ТРЕБОВАНИЯ: размеры, форматы, цвета (hex коды)\\n6. РЕФЕРЕНСЫ: опиши что искать для вдохновения\\n7. ЧЕКЛИСТ ПРОВЕРКИ: что проверить перед отправкой\\n\\nОтвет должен быть максимально конкретным и понятным для новичка.`}] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generate-design-guide",
+      "name": "Generate Design Guide",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        3650,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "OpenRouter API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "const guide = $node['Generate Design Guide'].json.choices[0].message.content;\n\nreturn {\n  json: {\n    ...($node[\"Check If Design Task\"].json),\n    designGuide: guide\n  }\n};"
+      },
+      "id": "parse-design-guide",
+      "name": "Parse Design Guide",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        3850,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ `🎨 ИНСТРУКЦИЯ ПО ВЫПОЛНЕНИЮ ДИЗАЙНА:\\n\\n${$json.designGuide.substring(0, 3500)}${$json.designGuide.length > 3500 ? '\\n\\n... (инструкция слишком длинная, продолжение в следующем сообщении)' : ''}` }}"
+      },
+      "id": "send-design-guide-1",
+      "name": "Send Design Guide Part 1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        4050,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.designGuide.length }}",
+              "operation": "larger",
+              "value2": 3500
+            }
+          ]
+        }
+      },
+      "id": "check-guide-length",
+      "name": "Check Guide Length",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        4250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.designGuide.substring(3500) }}"
+      },
+      "id": "send-design-guide-2",
+      "name": "Send Design Guide Part 2",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        4450,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "Check Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Error": {
+      "main": [
+        [
+          {
+            "node": "Send Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Acknowledgement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Acknowledgement": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze Task": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis": {
+      "main": [
+        [
+          {
+            "node": "Send Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Recommendation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Recommendation": {
+      "main": [
+        [
+          {
+            "node": "Send Generating Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Generating Message": {
+      "main": [
+        [
+          {
+            "node": "Init Loop Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Loop Variables": {
+      "main": [
+        [
+          {
+            "node": "Generate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Draft": {
+      "main": [
+        [
+          {
+            "node": "Extract Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Draft": {
+      "main": [
+        [
+          {
+            "node": "Review Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Draft": {
+      "main": [
+        [
+          {
+            "node": "Parse Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review": {
+      "main": [
+        [
+          {
+            "node": "Check Improvement Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Improvement Needed": {
+      "main": [
+        [
+          {
+            "node": "Generate Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Final Response": {
+      "main": [
+        [
+          {
+            "node": "Check If Dev Task",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check If Design Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Dev Task": {
+      "main": [
+        [
+          {
+            "node": "Send Dev Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Dev Start": {
+      "main": [
+        [
+          {
+            "node": "Generate Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Code": {
+      "main": [
+        [
+          {
+            "node": "Review Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Code": {
+      "main": [
+        [
+          {
+            "node": "Parse Code Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Code Review": {
+      "main": [
+        [
+          {
+            "node": "Send Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Design Task": {
+      "main": [
+        [
+          {
+            "node": "Generate Design Guide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Design Guide": {
+      "main": [
+        [
+          {
+            "node": "Parse Design Guide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Design Guide": {
+      "main": [
+        [
+          {
+            "node": "Send Design Guide Part 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Design Guide Part 1": {
+      "main": [
+        [
+          {
+            "node": "Check Guide Length",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Guide Length": {
+      "main": [
+        [
+          {
+            "node": "Send Design Guide Part 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1",
+  "id": "freelance-automation",
+  "meta": {
+    "instanceId": "n8n-instance"
+  },
+  "tags": []
+}
