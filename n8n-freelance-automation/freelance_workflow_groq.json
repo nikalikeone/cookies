@@ -1,0 +1,85 @@
+{
+  "name": "Freelance Automation - Groq API (Альтернатива)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-cred",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсер сообщения (идентичен основному workflow)\nconst message = $input.first().json.message.text || '';\nconst chatId = $input.first().json.message.chat.id;\nconst username = $input.first().json.message.from.username || 'unknown';\n\nfunction parseStructured(text) {\n  const fields = {};\n  const patterns = {\n    platform: /(?:Биржа|Площадка|Платформа)[:\\s]+(.+)/i,\n    link: /(?:Ссылка|URL|Link)[:\\s]+(https?:\\/\\/[^\\s]+)/i,\n    title: /(?:Заголовок|Название|Тема)[:\\s]+(.+)/i,\n    description: /(?:Описание|Задача|ТЗ|Текст)[:\\s]+([\\s\\S]*?)(?=(?:Бюджет|Дедлайн|Срок|$))/i,\n    budget: /(?:Бюджет|Цена|Стоимость|Оплата)[:\\s]+(.+)/i,\n    deadline: /(?:Дедлайн|Срок|Время|Когда)[:\\s]+(.+)/i\n  };\n  for (const [key, regex] of Object.entries(patterns)) {\n    const match = text.match(regex);\n    if (match) fields[key] = match[1].trim();\n  }\n  return fields;\n}\n\nfunction detectPlatform(text) {\n  const platforms = {\n    'kwork.ru': 'Kwork', 'fl.ru': 'FL.ru', 'freelance.habr.com': 'Habr Freelance',\n    'linkedin.com': 'LinkedIn', 'profi.ru': 'Profi.ru', 'youdo.com': 'YouDo',\n    'freelansim.ru': 'Freelansim', 'weblancer.net': 'Weblancer',\n    'upwork.com': 'Upwork', 'fiverr.com': 'Fiverr', 't.me': 'Telegram'\n  };\n  for (const [domain, name] of Object.entries(platforms)) {\n    if (text.toLowerCase().includes(domain)) return name;\n  }\n  return 'Не определена';\n}\n\nconst isCommand = message.startsWith('/');\nlet command = isCommand ? message.split(' ')[0].toLowerCase() : null;\nconst parsed = parseStructured(message);\n\nreturn [{\n  json: {\n    chatId, username, rawMessage: message, isCommand, command,\n    isStructured: Object.keys(parsed).length >= 2,\n    platform: parsed.platform || detectPlatform(message),\n    link: parsed.link || '', title: parsed.title || '',\n    description: parsed.description || message,\n    budget: parsed.budget || 'Не указан',\n    deadline: parsed.deadline || 'Не указан',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-message",
+      "name": "Парсинг сообщения",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.1-8b-instant\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты — эксперт-аналитик фриланс-рынка с 10-летним опытом. Анализируй задания объективно. Отвечай СТРОГО в формате JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Проанализируй фриланс-задание и верни JSON.\\n\\nЗадание:\\nБиржа: {{ $json.platform }}\\nЗаголовок: {{ $json.title }}\\nОписание: {{ $json.description }}\\nБюджет: {{ $json.budget }}\\nДедлайн: {{ $json.deadline }}\\n\\nВерни ТОЛЬКО валидный JSON:\\n{\\\"task_type\\\": \\\"разработка|дизайн|текст|другое\\\", \\\"task_subtype\\\": \\\"подтип\\\", \\\"complexity\\\": 1-10, \\\"required_skills\\\": [], \\\"budget_assessment\\\": \\\"адекватный|заниженный|завышенный\\\", \\\"budget_fair_range\\\": \\\"X-Y₽\\\", \\\"red_flags\\\": [], \\\"green_flags\\\": [], \\\"recommendation\\\": \\\"брать|не_брать|обсудить_условия\\\", \\\"recommendation_reason\\\": \\\"\\\", \\\"estimated_hours\\\": 0, \\\"can_automate\\\": false, \\\"automation_approach\\\": null}\"\n    }\n  ],\n  \"temperature\": 0.3,\n  \"max_tokens\": 1500\n}",
+        "options": {}
+      },
+      "id": "groq-analysis",
+      "name": "Groq - Анализ (Llama 3.1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "groq-cred",
+          "name": "Groq API"
+        }
+      },
+      "notes": "Groq API (бесплатно: 30 RPM, 14,400 req/day). Самый быстрый inference. OpenAI-совместимый формат. Credential: Header Auth → Authorization: Bearer gsk_..."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсинг ответа Groq (OpenAI-совместимый формат)\nconst input = $input.first().json;\nconst prevData = $('Парсинг сообщения').first().json;\n\nlet analysis = {};\ntry {\n  let text = input.choices[0].message.content;\n  text = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  analysis = JSON.parse(text);\n} catch (e) {\n  analysis = {\n    task_type: 'другое', task_subtype: 'не определён', complexity: 5,\n    required_skills: ['требуется ручной анализ'],\n    budget_assessment: 'требует оценки', budget_fair_range: 'N/A',\n    red_flags: ['AI не смог распарсить'], green_flags: [],\n    recommendation: 'обсудить_условия',\n    recommendation_reason: 'Требуется ручной анализ',\n    estimated_hours: 0, can_automate: false, automation_approach: null\n  };\n}\n\nreturn [{ json: { ...prevData, analysis } }];"
+      },
+      "id": "parse-groq-analysis",
+      "name": "Парсинг анализа Groq",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{"node": "Парсинг сообщения", "type": "main", "index": 0}]]
+    },
+    "Парсинг сообщения": {
+      "main": [[{"node": "Groq - Анализ (Llama 3.1)", "type": "main", "index": 0}]]
+    },
+    "Groq - Анализ (Llama 3.1)": {
+      "main": [[{"node": "Парсинг анализа Groq", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{"name": "freelance", "id": "1"}, {"name": "groq", "id": "5"}],
+  "triggerCount": 1,
+  "updatedAt": "2026-03-02T00:00:00.000Z",
+  "versionId": "1",
+  "_comment": "Это упрощённый workflow-шаблон для Groq API. Groq использует OpenAI-совместимый формат, поэтому переход с OpenRouter минимален — нужно только сменить URL и модель. Доступные бесплатные модели Groq: llama-3.1-8b-instant, llama-3.1-70b-versatile, mixtral-8x7b-32768, gemma2-9b-it"
+}

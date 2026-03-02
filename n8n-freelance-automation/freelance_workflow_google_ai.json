@@ -1,0 +1,78 @@
+{
+  "name": "Freelance Automation - Google AI Studio (Альтернатива)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-cred",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсер сообщения (идентичен основному workflow)\nconst message = $input.first().json.message.text || '';\nconst chatId = $input.first().json.message.chat.id;\nconst username = $input.first().json.message.from.username || 'unknown';\n\nfunction parseStructured(text) {\n  const fields = {};\n  const patterns = {\n    platform: /(?:Биржа|Площадка|Платформа)[:\\s]+(.+)/i,\n    link: /(?:Ссылка|URL|Link)[:\\s]+(https?:\\/\\/[^\\s]+)/i,\n    title: /(?:Заголовок|Название|Тема)[:\\s]+(.+)/i,\n    description: /(?:Описание|Задача|ТЗ|Текст)[:\\s]+([\\s\\S]*?)(?=(?:Бюджет|Дедлайн|Срок|$))/i,\n    budget: /(?:Бюджет|Цена|Стоимость|Оплата)[:\\s]+(.+)/i,\n    deadline: /(?:Дедлайн|Срок|Время|Когда)[:\\s]+(.+)/i\n  };\n  for (const [key, regex] of Object.entries(patterns)) {\n    const match = text.match(regex);\n    if (match) fields[key] = match[1].trim();\n  }\n  return fields;\n}\n\nfunction detectPlatform(text) {\n  const platforms = {\n    'kwork.ru': 'Kwork', 'fl.ru': 'FL.ru', 'freelance.habr.com': 'Habr Freelance',\n    'linkedin.com': 'LinkedIn', 'profi.ru': 'Profi.ru', 'youdo.com': 'YouDo',\n    'freelansim.ru': 'Freelansim', 'weblancer.net': 'Weblancer',\n    'upwork.com': 'Upwork', 'fiverr.com': 'Fiverr', 't.me': 'Telegram'\n  };\n  for (const [domain, name] of Object.entries(platforms)) {\n    if (text.toLowerCase().includes(domain)) return name;\n  }\n  return 'Не определена';\n}\n\nconst isCommand = message.startsWith('/');\nlet command = isCommand ? message.split(' ')[0].toLowerCase() : null;\nconst parsed = parseStructured(message);\n\nreturn [{\n  json: {\n    chatId, username, rawMessage: message, isCommand, command,\n    isStructured: Object.keys(parsed).length >= 2,\n    platform: parsed.platform || detectPlatform(message),\n    link: parsed.link || '', title: parsed.title || '',\n    description: parsed.description || message,\n    budget: parsed.budget || 'Не указан',\n    deadline: parsed.deadline || 'Не указан',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-message",
+      "name": "Парсинг сообщения",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{ $env.GOOGLE_AI_API_KEY }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"Ты — эксперт-аналитик фриланс-рынка. Проанализируй задание и верни ТОЛЬКО валидный JSON.\\n\\nЗадание:\\nБиржа: {{ $json.platform }}\\nЗаголовок: {{ $json.title }}\\nОписание: {{ $json.description }}\\nБюджет: {{ $json.budget }}\\nДедлайн: {{ $json.deadline }}\\n\\nВерни JSON:\\n{\\\"task_type\\\": \\\"разработка|дизайн|текст|другое\\\", \\\"task_subtype\\\": \\\"подтип\\\", \\\"complexity\\\": 1-10, \\\"required_skills\\\": [], \\\"budget_assessment\\\": \\\"адекватный|заниженный|завышенный\\\", \\\"budget_fair_range\\\": \\\"X-Y₽\\\", \\\"red_flags\\\": [], \\\"green_flags\\\": [], \\\"recommendation\\\": \\\"брать|не_брать|обсудить_условия\\\", \\\"recommendation_reason\\\": \\\"\\\", \\\"estimated_hours\\\": 0, \\\"can_automate\\\": false, \\\"automation_approach\\\": null}\"\n    }]\n  }],\n  \"generationConfig\": {\n    \"temperature\": 0.3,\n    \"maxOutputTokens\": 1500\n  }\n}",
+        "options": {}
+      },
+      "id": "google-ai-analysis",
+      "name": "Google AI - Анализ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "notes": "Google AI Studio API (бесплатно: 15 RPM, 1M токенов/день). Ключ через переменную окружения GOOGLE_AI_API_KEY"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсинг ответа Google AI Studio\nconst input = $input.first().json;\nconst prevData = $('Парсинг сообщения').first().json;\n\nlet analysis = {};\ntry {\n  let text = '';\n  if (input.candidates && input.candidates[0]) {\n    text = input.candidates[0].content.parts[0].text;\n  }\n  text = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  analysis = JSON.parse(text);\n} catch (e) {\n  analysis = {\n    task_type: 'другое', task_subtype: 'не определён', complexity: 5,\n    required_skills: ['требуется ручной анализ'],\n    budget_assessment: 'требует оценки', budget_fair_range: 'N/A',\n    red_flags: ['AI не смог распарсить'], green_flags: [],\n    recommendation: 'обсудить_условия',\n    recommendation_reason: 'Требуется ручной анализ',\n    estimated_hours: 0, can_automate: false, automation_approach: null\n  };\n}\n\nreturn [{ json: { ...prevData, analysis } }];"
+      },
+      "id": "parse-google-analysis",
+      "name": "Парсинг анализа Google AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300],
+      "notes": "Формат ответа Google AI отличается от OpenAI-совместимого: candidates[0].content.parts[0].text"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{"node": "Парсинг сообщения", "type": "main", "index": 0}]]
+    },
+    "Парсинг сообщения": {
+      "main": [[{"node": "Google AI - Анализ", "type": "main", "index": 0}]]
+    },
+    "Google AI - Анализ": {
+      "main": [[{"node": "Парсинг анализа Google AI", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [{"name": "freelance", "id": "1"}, {"name": "google-ai", "id": "4"}],
+  "triggerCount": 1,
+  "updatedAt": "2026-03-02T00:00:00.000Z",
+  "versionId": "1",
+  "_comment": "Это упрощённый workflow-шаблон для Google AI Studio. Для полной версии используйте freelance_automation_workflow.json и замените HTTP Request ноды на Google AI формат. Ключевое отличие: формат запроса (contents/parts вместо messages) и формат ответа (candidates вместо choices)."
+}
