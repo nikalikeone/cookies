@@ -1,0 +1,469 @@
+{
+  "name": "freelance-automation-free-ai",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const text = $json.message?.text || ''\nconst grab = (label) => {\n  const re = new RegExp(`^${label}\\s*:\\s*(.*)$`, 'mi')\n  const match = text.match(re)\n  return match ? match[1].trim() : ''\n}\n\nreturn [{\n  raw_text: text,\n  exchange: grab('Биржа'),\n  link: grab('Ссылка'),\n  title: grab('Заголовок'),\n  description: grab('Описание') || text,\n  budget: grab('Бюджет'),\n  deadline: grab('Дедлайн')\n}]"
+      },
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        -620,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "ai_provider",
+              "value": "openrouter"
+            },
+            {
+              "name": "ai_model",
+              "value": "mistralai/mistral-7b-instruct:free"
+            }
+          ],
+          "number": [
+            {
+              "name": "iteration",
+              "value": 0
+            },
+            {
+              "name": "max_iterations",
+              "value": 3
+            }
+          ]
+        }
+      },
+      "name": "Init",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты аналитик фриланс-задач. Отвечай строго JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Проанализируй фриланс-задание. Определи: 1. Тип задачи (разработка, дизайн, текст, другое) 2. Сложность (1-10) 3. Требуемые навыки 4. Реалистичность бюджета 5. Красные флаги (нечёткое ТЗ, слишком дешево, срочно без причины) 6. Рекомендация: брать/не брать + причина. Ответ верни в JSON с ключами: type, difficulty, skills, budget_ok, red_flags, recommendation, reason. Задание: {{$json.description}}\"\n    }\n  ]\n}"
+      },
+      "name": "AI Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -180,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "propertyName": "type",
+        "rules": [
+          {
+            "value": "разработка",
+            "operation": "equal"
+          },
+          {
+            "value": "дизайн",
+            "operation": "equal"
+          }
+        ],
+        "fallbackOutput": 2
+      },
+      "name": "Task Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        40,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты фрилансер с опытом.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Напиши отклик на фриланс-задание. Задание: {{$json.description}}. Мой опыт: Python 3 года, n8n, автоматизация, парсинг, боты Telegram. Тон: профессиональный, уверенный, но не высокомерный. Длина: 100-150 слов. Структура: приветствие → релевантный кейс → сроки → вопрос по уточнению.\"\n    }\n  ]\n}"
+      },
+      "name": "Draft Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        280,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты строгий редактор. Отвечай JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Оцени этот отклик на фриланс-задание по критериям: - Соответствует ли ТЗ заказчика? (да/нет) - Есть ли конкретика (цифры, сроки, технологии)? (оценка 1-10) - Звучит ли как шаблон? (да/нет) - Есть ли явная польза для заказчика? (да/нет) - Что улучшить? (конкретные правки) Если оценка < 8/10 или есть критические замечания → верни JSON: {improve: true, score: 0, suggestions: '...'} Иначе верни JSON: {improve: false, score: 9, suggestions: ''}. Отклик: {{$json.choices[0].message.content}}\"\n    }\n  ]\n}"
+      },
+      "name": "Review Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        520,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.improve}}",
+              "operation": "isTrue"
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{$json.score}}",
+              "operation": "smaller",
+              "value2": 8
+            }
+          ]
+        }
+      },
+      "name": "Needs Improve?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        740,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const nextIteration = ($json.iteration || 0) + 1\nreturn [{\n  ...$json,\n  iteration: nextIteration,\n  should_stop: nextIteration >= ($json.max_iterations || 3)\n}]"
+      },
+      "name": "Bump Iteration",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты фрилансер.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Улучши отклик с учётом замечаний: {{$json.suggestions}}. Сохрани структуру и тон. Длина: 100-150 слов.\"\n    }\n  ]\n}"
+      },
+      "name": "Refine Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1180,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.should_stop}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "name": "Stop Loop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.message.chat.id}}",
+        "text": "={{$json.choices?.[0]?.message?.content || $json.reply || 'Готово'}}"
+      },
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты Python-разработчик.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Ты Python-разработчик. Задача: {{$json.description}}. Требования: чистый код с комментариями, обработка ошибок, README с установкой. Сначала напиши план реализации (3-5 шагов). Затем код. Затем инструкцию по запуску.\"\n    }\n  ]\n}"
+      },
+      "name": "IT Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        280,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {},
+        "headerParametersJson": "{\n  \"Authorization\": \"Bearer {{$env.OPENROUTER_API_KEY}}\",\n  \"Content-Type\": \"application/json\"\n}",
+        "bodyParametersJson": "{\n  \"model\": \"{{$json.ai_model}}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Ты опытный дизайнер.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Сделай инструкцию для дизайна: - Инструменты: Canva, Figma, Leonardo.ai/Bing Image Creator, Remove.bg - Промпты для генератора изображений - Техзадание с размерами, цветами, шрифтами - 3 варианта дизайна - Самопроверка по композиции/цвету/типографике. ТЗ: {{$json.description}}\"\n    }\n  ]\n}"
+      },
+      "name": "Design Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.message.chat.id}}",
+        "text": "={{$json.choices?.[0]?.message?.content || 'Готово'}}"
+      },
+      "name": "Send IT Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        520,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.message.chat.id}}",
+        "text": "={{$json.choices?.[0]?.message?.content || 'Готово'}}"
+      },
+      "name": "Send Design Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        520,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Input": {
+      "main": [
+        [
+          {
+            "node": "Init",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze": {
+      "main": [
+        [
+          {
+            "node": "Task Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task Type": {
+      "main": [
+        [
+          {
+            "node": "Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Design Task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IT Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Reply": {
+      "main": [
+        [
+          {
+            "node": "Review Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Reply": {
+      "main": [
+        [
+          {
+            "node": "Needs Improve?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Improve?": {
+      "main": [
+        [
+          {
+            "node": "Bump Iteration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bump Iteration": {
+      "main": [
+        [
+          {
+            "node": "Refine Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refine Reply": {
+      "main": [
+        [
+          {
+            "node": "Stop Loop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stop Loop?": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IT Task": {
+      "main": [
+        [
+          {
+            "node": "Send IT Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Design Task": {
+      "main": [
+        [
+          {
+            "node": "Send Design Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
