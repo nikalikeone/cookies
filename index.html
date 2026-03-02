@@ -8,6 +8,118 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
 <style>*{margin:0;padding:0}@font-face{font-family:Steppe-Book;src:url(Steppe-Book.a7fc3ee738d3939e.ttf)}body{background-color:#5243f4;font-family:Steppe-Book,sans-serif;color:#fff}</style><link rel="stylesheet" href="styles.c4aba95408507975.css" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="styles.c4aba95408507975.css"></noscript></head>
 <body>
-  <app-root></app-root>
+  <app-root>
+    <main style="padding:32px;max-width:980px;margin:0 auto;line-height:1.6">
+      <h1 style="font-size:32px;margin-bottom:16px">n8n автоматизация для фриланс-бирж</h1>
+      <p style="margin-bottom:24px">
+        Цель: автоматический анализ заданий, генерация откликов и выполнение IT-задач с использованием бесплатных AI-моделей. Если задача
+        недоступна для бесплатных API — отправляется инструкция для самостоятельной работы с нужным сервисом.
+      </p>
+
+      <section style="margin-bottom:32px">
+        <h2 style="font-size:22px;margin-bottom:12px">Блок 1: Входные данные (Telegram Bot)</h2>
+        <p>Формат сообщения боту:</p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Новый заказ
+Биржа: Kwork
+Ссылка: https://kwork.ru/...
+Заголовок: Нужен парсер Wildberries
+Описание: [полный текст]
+Бюджет: 5000₽
+Дедлайн: 3 дня
+        </pre>
+        <p>Цепочка: Telegram Trigger → Function Node (парсинг текста) → сохранение в переменные.</p>
+      </section>
+
+      <section style="margin-bottom:32px">
+        <h2 style="font-size:22px;margin-bottom:12px">Блок 2: Анализ задания (AI Agent)</h2>
+        <ul style="padding-left:20px;margin-bottom:12px">
+          <li>Google Gemini (free tier)</li>
+          <li>Mistral AI (free tier)</li>
+          <li>Llama через Groq (free tier)</li>
+        </ul>
+        <p>Промпт для анализа:</p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Проанализируй фриланс-задание. Определи:
+1. Тип задачи (разработка, дизайн, текст, другое)
+2. Сложность (1-10)
+3. Требуемые навыки
+4. Реалистичность бюджета
+5. Красные флаги (нечёткое ТЗ, слишком дешево, срочно без причины)
+6. Рекомендация: брать/не брать + причина
+        </pre>
+      </section>
+
+      <section style="margin-bottom:32px">
+        <h2 style="font-size:22px;margin-bottom:12px">Блок 3: Генерация отклика (Self-Correction Loop)</h2>
+        <p><strong>Шаг 1 (Draft):</strong></p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Напиши отклик на фриланс-задание. Задание: {{$json.description}}.
+Мой опыт: Python 3 года, n8n, автоматизация, парсинг, боты Telegram.
+Тон: профессиональный, уверенный, но не высокомерный.
+Длина: 100-150 слов.
+Структура: приветствие → релевантный кейс → сроки → вопрос по уточнению.
+        </pre>
+        <p><strong>Шаг 2 (Review):</strong></p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Оцени этот отклик на фриланс-задание по критериям:
+- Соответствует ли ТЗ заказчика? (да/нет)
+- Есть ли конкретика (цифры, сроки, технологии)? (оценка 1-10)
+- Звучит ли как шаблон? (да/нет)
+- Есть ли явная польза для заказчика? (да/нет)
+- Что улучшить? (конкретные правки)
+Если оценка < 8/10 или есть критические замечания → верни JSON:
+{improve: true, suggestions: '...'}
+        </pre>
+        <p><strong>Шаг 3 (Refine):</strong></p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Если improve=true → отправить обратно в Draft с инструкцией:
+"Улучши отклик с учётом замечаний: {{$json.suggestions}}"
+        </pre>
+        <p>Условие выхода: 3 итерации ИЛИ оценка ≥ 8/10.</p>
+      </section>
+
+      <section style="margin-bottom:32px">
+        <h2 style="font-size:22px;margin-bottom:12px">Блок 4: Выполнение IT-задач (Code Node)</h2>
+        <p>Подходит для задач: написать скрипт, спарсить данные, сделать бота.</p>
+        <p>Промпт:</p>
+        <pre style="background:#3d2ec6;padding:16px;border-radius:10px;white-space:pre-wrap">
+Ты Python-разработчик. Задача: {{$json.task_description}}.
+Требования: чистый код с комментариями, обработка ошибок, README с установкой.
+Сначала напиши план реализации (3-5 шагов).
+Затем код.
+Затем инструкцию по запуску.
+        </pre>
+        <p>Self-correction loop:</p>
+        <ul style="padding-left:20px">
+          <li>Шаг 1: сгенерировать код</li>
+          <li>Шаг 2: AI Reviewer проверяет на баги, безопасность, соответствие ТЗ</li>
+          <li>Шаг 3: при замечаниях → рефакторинг</li>
+          <li>Шаг 4: финальная проверка без замечаний</li>
+        </ul>
+      </section>
+
+      <section style="margin-bottom:32px">
+        <h2 style="font-size:22px;margin-bottom:12px">Блок 5: Дизайн-задачи (для новичков)</h2>
+        <p><strong>Инструменты (бесплатные):</strong></p>
+        <ul style="padding-left:20px;margin-bottom:12px">
+          <li>Canva — соцсети, презентации, простые логотипы</li>
+          <li>Figma — UI/UX, макеты сайтов</li>
+          <li>Leonardo.ai / Bing Image Creator — генерация изображений</li>
+          <li>Remove.bg — обработка фото</li>
+        </ul>
+        <p><strong>Автоматизация дизайна:</strong></p>
+        <ul style="padding-left:20px;margin-bottom:12px">
+          <li>AI Agent анализирует ТЗ дизайна</li>
+          <li>Генерирует подробный промпт для генератора изображений</li>
+          <li>Создаёт ТЗ для Canva/Figma с размерами, цветами, шрифтами</li>
+          <li>Делает 3 варианта через AI-генератор</li>
+          <li>Self-correction: сверка с референсами, замечания по композиции/цвету/типографике</li>
+        </ul>
+        <p><strong>Инструкция для пользователя:</strong> отправляется в Telegram/Email вместе с результатами и ссылками на макеты.</p>
+        <p>Используются только бесплатные AI-агенты.</p>
+      </section>
+    </main>
+  </app-root>
 <script src="runtime.5435ea6014387c9b.js" type="module"></script><script src="polyfills.415d18fae5720c9c.js" type="module"></script><script src="main.82a1c8141483f272.js" type="module"></script></body>
 </html>
