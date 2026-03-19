@@ -99,7 +99,7 @@
     },
     {
       "parameters": {
-        "amount": 3,
+        "amount": 10,
         "unit": "seconds"
       },
       "id": "wait-before-analyze",
@@ -141,11 +141,17 @@
           ]
         },
         "options": {
-          "retry": {
-            "maxRetries": 3,
-            "retryInterval": 5000
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 10000
+            }
           },
-          "timeout": 30000
+          "retry": {
+            "maxRetries": 5,
+            "retryInterval": 10000
+          },
+          "timeout": 60000
         }
       },
       "id": "ai-analyze-task",
@@ -206,16 +212,56 @@
     },
     {
       "parameters": {
-        "functionCode": "// Парсинг ответа от AI\nconst aiResponse = $input.item.json.choices[0].message.content;\n\n// Извлекаем JSON из ответа (может быть обёрнут в markdown)\nlet analysis;\ntry {\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*\\}/);\n  analysis = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  return {\n    json: {\n      error: true,\n      errorMessage: 'Ошибка парсинга ответа AI: ' + error.message,\n      rawResponse: aiResponse\n    }\n  };\n}\n\n// Объединяем данные\nreturn {\n  json: {\n    ...($node[\"Parse Message\"].json),\n    analysis: analysis,\n    analysisCompleted: true\n  }\n};"
+        "functionCode": "// Парсинг ответа от AI\nconst inputData = $input.item.json;\n\n// Проверяем наличие choices (успешный ответ от AI)\nif (!inputData.choices || !inputData.choices[0] || !inputData.choices[0].message) {\n  return {\n    json: {\n      error: true,\n      errorMessage: 'AI не вернул ответ. Возможно превышен лимит запросов (429). Подождите 1-2 минуты.',\n      chatId: $node[\"Parse Message\"].json.chatId\n    }\n  };\n}\n\nconst aiResponse = inputData.choices[0].message.content;\n\n// Извлекаем JSON из ответа (может быть обёрнут в markdown)\nlet analysis;\ntry {\n  const jsonMatch = aiResponse.match(/\\{[\\s\\S]*\\}/);\n  analysis = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  return {\n    json: {\n      error: true,\n      errorMessage: 'Ошибка парсинга ответа AI: ' + error.message,\n      rawResponse: aiResponse,\n      chatId: $node[\"Parse Message\"].json.chatId\n    }\n  };\n}\n\n// Объединяем данные\nreturn {\n  json: {\n    ...($node[\"Parse Message\"].json),\n    analysis: analysis,\n    analysisCompleted: true\n  }\n};"
       },
       "id": "parse-analysis",
       "name": "Parse Analysis",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [
-        1250,
-        400
+        1600,
+        500
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.error }}",
+              "value2": "={{ undefined }}"
+            }
+          ]
+        }
+      },
+      "id": "check-parse-error",
+      "name": "Check Parse Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ '⚠️ ' + $json.errorMessage }}"
+      },
+      "id": "send-parse-error",
+      "name": "Send Parse Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
+        }
+      }
     },
     {
       "parameters": {
@@ -227,8 +273,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1,
       "position": [
-        1450,
-        400
+        2000,
+        600
       ],
       "credentials": {
         "telegramApi": {
@@ -314,7 +360,7 @@
     },
     {
       "parameters": {
-        "amount": 5,
+        "amount": 15,
         "unit": "seconds"
       },
       "id": "wait-before-draft",
@@ -356,11 +402,17 @@
           ]
         },
         "options": {
-          "retry": {
-            "maxRetries": 3,
-            "retryInterval": 5000
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 15000
+            }
           },
-          "timeout": 30000
+          "retry": {
+            "maxRetries": 5,
+            "retryInterval": 15000
+          },
+          "timeout": 60000
         }
       },
       "id": "generate-draft",
@@ -394,7 +446,7 @@
     },
     {
       "parameters": {
-        "amount": 5,
+        "amount": 15,
         "unit": "seconds"
       },
       "id": "wait-before-review",
@@ -436,11 +488,17 @@
           ]
         },
         "options": {
-          "retry": {
-            "maxRetries": 3,
-            "retryInterval": 5000
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 15000
+            }
           },
-          "timeout": 30000
+          "retry": {
+            "maxRetries": 5,
+            "retryInterval": 15000
+          },
+          "timeout": 60000
         }
       },
       "id": "review-draft",
@@ -912,6 +970,24 @@
     },
     "Parse Analysis": {
       "main": [
+        [
+          {
+            "node": "Check Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Parse Error": {
+      "main": [
+        [
+          {
+            "node": "Send Parse Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Send Analysis",
