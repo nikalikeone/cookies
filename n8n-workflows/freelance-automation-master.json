@@ -99,6 +99,21 @@
     },
     {
       "parameters": {
+        "amount": 3,
+        "unit": "seconds"
+      },
+      "id": "wait-before-analyze",
+      "name": "Wait Before Analyze",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        400
+      ],
+      "webhookId": "wait-analyze"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "authentication": "genericCredentialType",
@@ -117,7 +132,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "google/gemini-2.0-flash-exp:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -125,20 +140,67 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "retry": {
+            "maxRetries": 3,
+            "retryInterval": 5000
+          },
+          "timeout": 30000
+        }
       },
       "id": "ai-analyze-task",
       "name": "AI Analyze Task",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1050,
+        1200,
         400
       ],
       "credentials": {
         "httpHeaderAuth": {
           "id": "2",
           "name": "OpenRouter API Key"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.error }}",
+              "value2": "={{ undefined }}"
+            }
+          ]
+        }
+      },
+      "id": "check-analyze-error",
+      "name": "Check Analyze Error",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Send Acknowledgement').item.json.chatId }}",
+        "text": "⚠️ Ошибка при анализе задания (слишком много запросов к AI). Попробуйте через 1-2 минуты или используйте другую бесплатную модель.\n\nПопробуйте эти модели:\n- meta-llama/llama-3.2-3b-instruct:free\n- mistralai/mistral-7b-instruct:free\n- google/gemini-flash-1.5:free"
+      },
+      "id": "send-rate-limit-error",
+      "name": "Send Rate Limit Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot API"
         }
       }
     },
@@ -252,6 +314,21 @@
     },
     {
       "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-before-draft",
+      "name": "Wait Before Draft",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        500
+      ],
+      "webhookId": "wait-draft"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "authentication": "genericCredentialType",
@@ -270,7 +347,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "mistralai/mistral-7b-instruct:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -278,14 +355,20 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "retry": {
+            "maxRetries": 3,
+            "retryInterval": 5000
+          },
+          "timeout": 30000
+        }
       },
       "id": "generate-draft",
       "name": "Generate Draft",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        2250,
+        2400,
         500
       ],
       "credentials": {
@@ -293,7 +376,8 @@
           "id": "2",
           "name": "OpenRouter API Key"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -310,6 +394,21 @@
     },
     {
       "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-before-review",
+      "name": "Wait Before Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2600,
+        500
+      ],
+      "webhookId": "wait-review"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://openrouter.ai/api/v1/chat/completions",
         "authentication": "genericCredentialType",
@@ -328,7 +427,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "google/gemini-2.0-flash-exp:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -336,14 +435,20 @@
             }
           ]
         },
-        "options": {}
+        "options": {
+          "retry": {
+            "maxRetries": 3,
+            "retryInterval": 5000
+          },
+          "timeout": 30000
+        }
       },
       "id": "review-draft",
       "name": "Review Draft",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        2650,
+        2800,
         500
       ],
       "credentials": {
@@ -351,7 +456,8 @@
           "id": "2",
           "name": "OpenRouter API Key"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -467,7 +573,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "meta-llama/llama-3.1-8b-instruct:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -512,7 +618,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "google/gemini-2.0-flash-exp:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -611,7 +717,7 @@
           "parameters": [
             {
               "name": "model",
-              "value": "google/gemini-2.0-flash-exp:free"
+              "value": "qwen/qwen3-coder:free"
             },
             {
               "name": "messages",
@@ -757,6 +863,17 @@
       "main": [
         [
           {
+            "node": "Wait Before Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Analyze": {
+      "main": [
+        [
+          {
             "node": "AI Analyze Task",
             "type": "main",
             "index": 0
@@ -766,6 +883,24 @@
     },
     "AI Analyze Task": {
       "main": [
+        [
+          {
+            "node": "Check Analyze Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Analyze Error": {
+      "main": [
+        [
+          {
+            "node": "Send Rate Limit Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Parse Analysis",
@@ -823,6 +958,17 @@
       "main": [
         [
           {
+            "node": "Wait Before Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Draft": {
+      "main": [
+        [
+          {
             "node": "Generate Draft",
             "type": "main",
             "index": 0
@@ -842,6 +988,17 @@
       ]
     },
     "Extract Draft": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Review": {
       "main": [
         [
           {
@@ -878,7 +1035,7 @@
       "main": [
         [
           {
-            "node": "Generate Draft",
+            "node": "Wait Before Draft",
             "type": "main",
             "index": 0
           }
